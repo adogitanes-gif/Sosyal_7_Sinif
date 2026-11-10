@@ -35,7 +35,7 @@ const M={other:{m:'Dikkat Canavarı',c:'#a9acdf',t:'Dikkat hatası veya henüz s
 const FEN={units:{},lessons:[],unit(n,o){this.units[n]=o},mis(o){for(const k in o)M[k]={p:null,...o[k]}},lesson(o){if(o.script)o.script=fitScenes(o.script).map(([n,sp,ops])=>[n,sp,layerOps(ops||[])]);this.lessons.push(o)}};
 /* one big drawing per board: a scene that holds two big drawings is split in two (its narration divided by sentences),
    and a lesson title that shares the board with a drawing becomes a caption line at the bottom */
-const BIGOPS=new Set(['cards','chain','table','source','compare','cycle','timeline','map','pic']),MEDOPS=new Set(['lines','rules','eq']);
+const BIGOPS=new Set(['cards','chain','table','source','compare','cycle','timeline','map','pic','ekler']),MEDOPS=new Set(['lines','rules','eq']);
 const splitSpeech=sp=>{const S=(sp.match(/[^.!?…]+[.!?…]+["”’]?\s*/g)||[sp]).map(x=>x.trim()).filter(Boolean),h=Math.ceil(S.length/2);return [S.slice(0,h).join(' '),S.slice(h).join(' ')]};
 function fitScenes(script){const out=[];
   for(const sc of script){let [n,sp,ops]=sc;ops=(ops||[]).slice();
