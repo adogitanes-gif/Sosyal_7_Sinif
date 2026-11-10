@@ -23,7 +23,9 @@ const CL={
   unpack(c){const o=CL.dec(c);if(!o||!o.z)return null;const {z,...rest}=o;return CL.seal(rest)===z?rest:null},
   /* names */
   cap(s){return String(s||'').trim().replace(/\s+/g,' ').toLocaleLowerCase('tr').replace(/(^|[\s-])(\S)/g,(m,a,b)=>a+b.toLocaleUpperCase('tr'))},
-  normClass(s){const m=String(s||'').trim().toLocaleUpperCase('tr').match(/^(\d{1,2})\s*[-/.\s]?\s*([A-ZÇĞİÖŞÜ])$/);return m?m[1]+'-'+m[2]:null},
+  /* class code: grade 1-12, then 1-3 letters/digits. Without a separator the part must start with a letter ("11A" is 11-A;
+     "111", "71", "13A" are refused); a part starting with a digit needs -, /, . or a space ("7-101"). */
+  normClass(s){const m=String(s||'').trim().toLocaleUpperCase('tr').match(/^(1[0-2]|[1-9])(?:\s*[-/.\s]\s*([A-ZÇĞİÖŞÜ0-9]{1,3})|([A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ0-9]{0,2}))$/);return m?m[1]+'-'+(m[2]||m[3]):null},
   student(){return CL.get('g7-student',null)},
   parent(){const p=CL.get('g7-parent',{});return {father:p.father||p.phone||'',mother:p.mother||'',email:p.email||''}},
   intl(t){let d=String(t||'').replace(/\D/g,'');if(/^0\d{10}$/.test(d))d='9'+d;else if(/^5\d{9}$/.test(d))d='90'+d;return d},
@@ -84,6 +86,7 @@ const CL={
   async verifyObj(pub,o,sig){try{const k=await crypto.subtle.importKey('raw',CL.decompress(pub),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
     return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},k,CL.ub64u(sig),new TextEncoder().encode(CL.canon(o)))}catch(e){return false}},
   unsigned(o){const b={...o};delete b.sig;return b},
+  byeOk(o){return !!(o&&o.k==='bye'&&o.cid&&o.co&&o.co.tid&&o.co.pub&&o.bye&&o.bye.key&&typeof o.bye.pt==='number'&&o.sig)},
   clsOk(o){return !!(o&&o.k==='cls'&&o.cid&&CL.normClass(o.c)&&o.co&&o.co.tid&&o.co.n&&o.co.pub&&Array.isArray(o.seats)&&typeof o.v==='number'&&typeof o.t==='number'&&o.sig)},
 
   /* ===== the Turkish parent message (used by the games and by the teacher panel) ===== */
@@ -196,7 +199,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
     const ok=()=>{const n=CL.cap($('cl-n').value),s=CL.cap($('cl-s').value),c=CL.normClass($('cl-c').value);
       if(n.length<2||s.length<2||!c){ov.querySelector('.cl-err').hidden=false;return}
       const pf=$('cl-pf').value.trim(),pm=$('cl-pm').value.trim(),pe=$('cl-pe').value.trim();if(!CL.okPhone(pf)||!CL.okPhone(pm)||!CL.okMail(pe)){ov.querySelector('.cl-perr').hidden=false;return}
-      CL.set('g7-parent',{father:pf,mother:pm,email:pe});CL.set('g7-student',{n,s,c,t:Date.now()});if($('cl-vc').checked&&(pf||pm||pe))CL.set('g7-vcok',{key:CL.key({n,s,c}),t:Date.now()});else CL.set('g7-vcok',null);rebuildTeachers();ov.remove();if(!location.hash||location.hash==='#')hub();else decorateHome();if(opt.after)opt.after()};
+      CL.set('g7-parent',{father:pf,mother:pm,email:pe});setStudent({n,s,c,t:Date.now()});if($('cl-vc').checked&&(pf||pm||pe))CL.set('g7-vcok',{key:CL.key({n,s,c}),t:Date.now()});else CL.set('g7-vcok',null);rebuildTeachers();ov.remove();if(!location.hash||location.hash==='#')hub();else decorateHome();if(opt.after)opt.after()};
     $('cl-ok').onclick=ok;ov.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')ok()});if($('cl-x'))$('cl-x').onclick=()=>ov.remove()}
 
   /* ---- teacher notes (arrive as #not=… links) ---- */
@@ -215,6 +218,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
       hub();const st=CL.student();
       if(!st)askName(true,{c:o.c,intro:I.inv(o),after:()=>joinAsk(o)});else if(st.c!==o.c)classAsk(o,st);else joinAsk(o);return true}
     if((m=h.match(/^#sinif=([A-Za-z0-9_-]+)/))){const o=CL.unpack(m[1]);history.replaceState(null,'',location.pathname+location.search);
+      if(o&&o.k==='bye'){if(!CL.byeOk(o)){hub();flash(Cx.bad);return true}takeBye(o);return true}
       if(!CL.clsOk(o)){hub();flash(Cx.bad);return true}HOLD=true;o._raw=o.seats;o.seats=o.seats.map(z=>z.length===1?[z[0],o.co.tid,o.co.n,o.co.pub,o.co.alias||[],o.co.ph||'',o.co.em||'']:z);takeClass(o);return true}
     if((m=h.match(/^#duyuru=([A-Za-z0-9_-]+)/))){const o=CL.unpack(m[1]);history.replaceState(null,'',location.pathname+location.search);
       if(!o||o.k!=='duyuru'||!o.cid||!o.by||!o.by.tid||!o.m||!o.sig||!o.t){hub();flash(Cx.annBad);return true}takeAnn(o);return true}
@@ -228,13 +232,17 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
       wrongKey:'This update is not from your class coordinator, so it was refused.',old:'This class link is older than the one you have. Nothing changed.',
       nkT:'New coordinator key',nk:o=>`${CL.h(o.co.n)} says the class key has changed. Accept this only if your teacher showed you this QR code in class.`,nkYes:'Yes, I got it in class',nkNo:'No, refuse',
       chT:c=>`Teacher change in ${CL.h(c)}`,coord:'Class teacher',chHint:'Accept only if your teacher told you about this change.',chYes:'Accept',chNo:'Refuse',
-      former:'This message is from a former teacher of your class.',ann:'Announcement',annGot:'📣 New class announcement',annBad:'This announcement could not be checked, so it was refused.',annNo:'This announcement is for a class you have not joined.'}
+      former:'This message is from a former teacher of your class.',notYou:'This link is for another student.',removed:c=>`You were removed from class ${CL.h(c)}. To join again, ask your teacher.`,byeNone:'You are not in this class.',byeOther:'This notice is for another student.',byeBad:'This notice could not be checked, so it was refused.',byeT:c=>`You left class ${CL.h(c)}`,byeMsg:'Your coordinator removed you from this class. Your progress in the games is kept.',byeFor:n=>`This notice is for ${CL.h(n)}: removed from the class on this device.`,moving:'moving',myClasses:'My classes',ann:'Announcement',annGot:'📣 New class announcement',annBad:'This announcement could not be checked, so it was refused.',annNo:'This announcement is for a class you have not joined.'}
     :{bad:'Bu sınıf bağlantısı okunamadı ya da değiştirilmiş.',nosig:'Bu tarayıcı imzalı sınıf bağlantılarını denetleyemiyor. Oyunu internet adresinden Chrome, Edge ya da Safari ile açın.',
       inv:o=>`🎉 <b>${CL.h(o.co.n)}</b> seni <b>${CL.h(o.c)}</b> sınıfına davet ediyor.`,joined:o=>`${CL.h(o.c)} sınıfına katıldın.`,list:'Öğretmenlerin:',updated:'Sınıf öğretmenlerin güncellendi.',
       wrongKey:'Bu güncelleme sınıfının koordinatöründen gelmiyor; kabul edilmedi.',old:'Bu sınıf bağlantısı elindekinden eski. Bir şey değişmedi.',
       nkT:'Yeni koordinatör anahtarı',nk:o=>`${CL.h(o.co.n)} sınıf anahtarının değiştiğini söylüyor. Bunu yalnızca öğretmenin bu QR kodunu sınıfta gösterdiyse kabul et.`,nkYes:'Evet, sınıfta aldım',nkNo:'Hayır, reddet',
       chT:c=>`${CL.h(c)} sınıfında öğretmen değişikliği`,coord:'Sınıf öğretmeni',chHint:'Yalnızca öğretmenin bu değişikliği sana söylediyse kabul et.',chYes:'Kabul et',chNo:'Reddet',
-      former:'Bu mesaj sınıfının eski bir öğretmeninden.',ann:'Duyuru',annGot:'📣 Yeni sınıf duyurusu',annBad:'Bu duyuru denetlenemedi; kabul edilmedi.',annNo:'Bu duyuru katılmadığın bir sınıf için.'};
+      former:'Bu mesaj sınıfının eski bir öğretmeninden.',notYou:'Bu bağlantı başka bir öğrenci için.',removed:c=>`${CL.h(c)} sınıfından çıkarıldın. Tekrar katılmak için öğretmenine sor.`,byeNone:'Bu sınıfta değilsin.',byeOther:'Bu bildirim başka bir öğrenci için.',byeBad:'Bu bildirim denetlenemedi; kabul edilmedi.',byeT:c=>`${CL.h(c)} sınıfından ayrıldın`,byeMsg:'Koordinatörün seni bu sınıftan çıkardı. Oyunlardaki ilerlemen korunur.',byeFor:n=>`Bu bildirim ${CL.h(n)} için: bu cihazda sınıftan çıkarıldı.`,moving:'taşınıyor',myClasses:'Sınıfların',ann:'Duyuru',annGot:'📣 Yeni sınıf duyurusu',annBad:'Bu duyuru denetlenemedi; kabul edilmedi.',annNo:'Bu duyuru katılmadığın bir sınıf için.'};
+  function setStudent(nst){const old=CL.student(),ok=old?CL.key(old):null,nk=CL.key(nst),same=old&&nst.n===old.n&&nst.s===old.s;
+    nst={...nst,sid:same&&old.sid?old.sid:(Date.now().toString(36)+Math.random().toString(36).slice(2,8))};CL.set('g7-student',nst);
+    if(ok&&ok!==nk&&nst.n===old.n&&nst.s===old.s)['g7-classes','g7-classes-bye','g7-lastsent'].forEach(K=>{const A=CL.get(K,{});if(A[ok]){A[nk]={...A[ok],...(A[nk]||{})};delete A[ok];CL.set(K,A)}});
+    const v=CL.get('g7-vcok',null);if(v&&v.key===ok&&ok!==nk&&nst.n===old.n&&nst.s===old.s)CL.set('g7-vcok',{...v,key:nk})}
   function CLS(){const st=CL.student();return st?(CL.get('g7-classes',{})[CL.key(st)]||{}):{}}
   function saveCls(m){const st=CL.student();if(!st)return;const A=CL.get('g7-classes',{});A[CL.key(st)]=m;CL.set('g7-classes',A)}
   function rebuildTeachers(){const TT=CL.get('g7-teachers',{});
@@ -245,24 +253,48 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
       add(x.co.tid,x.co.n,[],x.co.ph||'',x.co.em||'',x.co.alias,'coord');x.seats.forEach(([g,tid,n,pub,al,ph,em])=>add(tid,n,[g],ph,em,al))}
     CL.set('g7-teachers',TT)}
   function knownTid(tid){const TT=CL.get('g7-teachers',{});return !!TT[tid]||Object.values(TT).some(t=>(t.alias||[]).includes(tid))}
-  function formerTid(tid){return Object.values(CLS()).some(x=>(x.former||[]).some(f=>f[0]===tid||(f[2]||[]).includes(tid)))}
+  function byes(sk){return (CL.get('g7-classes-bye',{})[sk])||{}}
+  function formerTid(tid){const st=CL.student(),hit=f=>f[0]===tid||(f[2]||[]).includes(tid);return Object.values(CLS()).some(x=>(x.former||[]).some(hit))||(st?Object.values(byes(CL.key(st))).some(b=>(b.former||[]).some(hit)):false)}
   let HOLD=false;
   async function takeClass(o){
     if(!CL.canSign()){HOLD=false;hub();flash(Cx.nosig);if(!CL.student())askName(false);return}
     const raw={...o,seats:o._raw||o.seats};delete raw._raw;if(!await CL.verifyObj(o.co.pub,CL.unsigned(raw),o.sig)){HOLD=false;hub();flash(Cx.bad);if(!CL.student())askName(false);return}HOLD=false;
     o.c=CL.normClass(o.c);const st=CL.student();
     if(!st){askName(true,{c:o.c,intro:Cx.inv(o),after:()=>takeClass(o)});return}
-    if(st.c!==o.c){dlg(`<p class="cl-inv">${Cx.inv(o)}</p><p>${I.diff(o.c,st.c)}</p>`,[[I.mk(o.c),()=>{CL.set('g7-student',{...st,c:o.c,t:Date.now()});takeClass(o)}],[I.keep(st.c),()=>hub()]]);return}
-    const m=CLS(),ex=m[o.cid];
-    const apply=()=>{const former=[...(ex&&ex.former||[])];
-      if(ex){const now=new Set(o.seats.map(s=>s[1]));ex.seats.filter(s=>!now.has(s[1])&&s[1]!==o.co.tid).forEach(s=>former.push([s[1],s[2],s[4]||[]]));if(ex.co.tid!==o.co.tid)former.push([ex.co.tid,ex.co.n,ex.co.alias||[]])}
-      const m2=CLS();m2[o.cid]={c:o.c,v:o.v,t:o.t,co:o.co,seats:o.seats,former:former.filter(f=>!o.seats.some(s=>s[1]===f[0])).slice(-20),joined:ex?ex.joined:Date.now()};
-      saveCls(m2);rebuildTeachers();hub();if(!ex)joinClass(o);else flash(Cx.updated)};
+    const sk=CL.key(st);
+    if(o.to&&o.to.key!==sk&&!Object.values(CLS()).some(x=>x.enrolKey===o.to.key)){hub();flash(Cx.notYou);return}
+    const tomb=byes(sk)[o.cid];
+    if(tomb){if(!o.to){hub();flash(Cx.removed(o.c));return}if(!(o.to.pt>tomb.pt)){hub();flash(Cx.old);return}}
+    if(st.c!==o.c){dlg(`<p class="cl-inv">${Cx.inv(o)}</p><p>${I.diff(o.c,st.c)}</p>`,[[I.mk(o.c),()=>{setStudent({...st,c:o.c,t:Date.now()});takeClass(o)}],[I.keep(st.c),()=>hub()]]);return}
+    const ex=CLS()[o.cid],newer=!ex||o.v>ex.v||(o.v===ex.v&&o.t>ex.t);
+    const apply=()=>{const m2=CLS(),e0=m2[o.cid],former=[...(e0&&e0.former||[])];
+      if(e0&&newer){const now=new Set(o.seats.map(z=>z[1]));e0.seats.filter(z=>!now.has(z[1])&&z[1]!==o.co.tid).forEach(z=>former.push([z[1],z[2],z[4]||[]]));if(e0.co.tid!==o.co.tid)former.push([e0.co.tid,e0.co.n,e0.co.alias||[]])}
+      const base=newer?{c:o.c,v:o.v,t:o.t,co:o.co,seats:o.seats,ds:String(o.ds||'').slice(0,60)}:{c:e0.c,v:e0.v,t:e0.t,co:e0.co,seats:e0.seats,ds:e0.ds||''};
+      /* only a join sets the membership time: a class-wide join uses the link time, a personal enrol its own pt; seat updates keep it */
+      const pt=o.to?Math.max(o.to.pt,(e0&&e0.pt)||0):(e0?(e0.pt||0):o.t);
+      m2[o.cid]={...base,former:former.filter(f=>!base.seats.some(z=>z[1]===f[0])).slice(-20),joined:e0?e0.joined:Date.now(),pt,enrolKey:o.to?sk:((e0&&e0.enrolKey)||sk),moving:false};
+      if(o.to&&o.from&&o.from.cid!==o.cid&&m2[o.from.cid]&&m2[o.from.cid].co.pub===o.co.pub)m2[o.from.cid].moving=true;
+      saveCls(m2);if(tomb&&o.to){const B=CL.get('g7-classes-bye',{});if(B[sk]){delete B[sk][o.cid];CL.set('g7-classes-bye',B)}}
+      rebuildTeachers();hub();if(!e0)joinClass(o);else flash(Cx.updated)};
     if(!ex){apply();return}
     if(ex.co.pub!==o.co.pub){if(!o.nk){hub();flash(Cx.wrongKey);return}
       hub();dlg(`<h2 style="margin-top:0">🔑 ${Cx.nkT}</h2><p>${Cx.nk(o)}</p>`,[[Cx.nkYes,()=>seatAsk(ex,o,apply)],[Cx.nkNo,null]]);return}
-    if(o.v<ex.v||(o.v===ex.v&&o.t<=ex.t)){hub();flash(Cx.old);return}
+    if(!newer){if(o.to&&o.to.pt>(ex.pt||0)){apply();return}hub();flash(Cx.old);return}
     hub();seatAsk(ex,o,apply)}
+  /* removal notice (k:'bye', sent as #sinif=): verified with the class key this device pinned; applies only if newer than the join */
+  async function takeBye(o){if(!CL.canSign()){hub();flash(Cx.nosig);return}
+    const A=CL.get('g7-classes',{}),st=CL.student(),cur=st?CL.key(st):'';
+    const sk=Object.keys(A).find(k=>A[k][o.cid]&&(A[k][o.cid].enrolKey===o.bye.key||k===o.bye.key));
+    if(!sk){hub();flash(o.bye.key===cur?Cx.byeNone:Cx.byeOther);return}
+    const x=A[sk][o.cid];if(!await CL.verifyObj(x.co.pub,CL.unsigned(o),o.sig)){hub();flash(Cx.byeBad);return}
+    if(!(o.bye.pt>(x.pt||0))){hub();flash(Cx.old);return}
+    const go=()=>{const A2=CL.get('g7-classes',{}),x2=A2[sk]&&A2[sk][o.cid];if(!x2)return;delete A2[sk][o.cid];CL.set('g7-classes',A2);
+      const B=CL.get('g7-classes-bye',{});B[sk]=B[sk]||{};B[sk][o.cid]={pt:o.bye.pt,c:x2.c,former:[[x2.co.tid,x2.co.n,x2.co.alias||[]],...x2.seats.map(z=>[z[1],z[2],z[4]||[]])]};
+      const ks=Object.keys(B[sk]);if(ks.length>50)ks.sort((p,q)=>B[sk][p].pt-B[sk][q].pt).slice(0,ks.length-50).forEach(k=>delete B[sk][k]);
+      CL.set('g7-classes-bye',B);rebuildTeachers();hub()};
+    hub();if(sk===cur)dlg(`<h2 style="margin-top:0">${Cx.byeT(x.c)}</h2><p>${Cx.byeMsg}</p>`,[[T.read,go]]);
+    else dlg(`<p>${Cx.byeFor(CL.cap(sk.split('|')[1]||sk))}</p>`,[[T.read,go]])}
+  function classesLine(){const L=Object.values(CLS()).map(x=>CL.h(x.c)+(x.ds?' – '+CL.h(x.ds):'')+(x.moving?` (${Cx.moving})`:''));return L.length?`🏫 ${Cx.myClasses}: ${L.join(' · ')}`:''}
   function seatAsk(ex,o,apply){const M=s=>{const r={};s.forEach(x=>r[x[0]]=x[2]);return r},A=M(ex.seats),B=M(o.seats),ch=[...new Set([...Object.keys(A),...Object.keys(B)])].filter(g=>A[g]!==B[g]);
     if(!ch.length&&ex.co.n===o.co.n){apply();return}
     dlg(`<h2 style="margin-top:0">${Cx.chT(o.c)}</h2><ul>${ch.map(g=>`<li>${CL.h(CL.GAMES[g]?CL.GAMES[g].tr:g)}: ${CL.h(A[g]||'—')} → <b>${CL.h(B[g]||'—')}</b></li>`).join('')}${ex.co.n!==o.co.n?`<li>${Cx.coord}: ${CL.h(ex.co.n)} → <b>${CL.h(o.co.n)}</b></li>`:''}</ul><p class="hint">${Cx.chHint}</p>`,[[Cx.chYes,apply],[Cx.chNo,null]])}
@@ -289,7 +321,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
       unknown:'⚠️ Bu gönderen öğretmenler listende yok. Emin değilsen öğretmenine sor.',from:'Gönderen'};
   function dlg(html,btns){const ov=document.createElement('div');ov.className='ov cl-ov';ov.innerHTML=`<div class="pnl cl-pnl" role="dialog" aria-modal="true">${html}<div class="row cl-btns" style="margin-top:12px">${btns.map((b,i)=>`<button class="btn${i?'':' gold'}" data-i="${i}" type="button">${CL.h(b[0])}</button>`).join('')}</div></div>`;
     document.body.appendChild(ov);ov.querySelectorAll('[data-i]').forEach(x=>x.onclick=()=>{ov.remove();const f=btns[+x.dataset.i][1];if(f)f()});return ov}
-  function classAsk(o,st){dlg(`<p class="cl-inv">${I.inv(o)}</p><p>${I.diff(o.c,st.c)}</p>`,[[I.mk(o.c),()=>{CL.set('g7-student',{...st,c:o.c,t:Date.now()});hub();joinAsk(o)}],[I.keep(st.c),()=>joinAsk(o)]])}
+  function classAsk(o,st){dlg(`<p class="cl-inv">${I.inv(o)}</p><p>${I.diff(o.c,st.c)}</p>`,[[I.mk(o.c),()=>{setStudent({...st,c:o.c,t:Date.now()});hub();joinAsk(o)}],[I.keep(st.c),()=>joinAsk(o)]])}
   function joinAsk(o){dlg(`<h2 style="margin-top:0">🎉 ${I.joined(o)}</h2><p class="hint">${I.joinHint}</p>`,[[I.join,()=>sendTeacher(o.tid,true)],[I.later,null]])}
   function byWarn(by){if(!by||!by.tid)return '';if(knownTid(by.tid))return '';if(formerTid(by.tid))return `<p class="hint">${Cx.former}</p>`;return `<p class="hint cl-warn">${I.unknown}</p>`}
   function pickTeacher(TT,go){dlg(`<h2 style="margin-top:0">${I.pick}</h2>`,[...Object.entries(TT).sort((a,b)=>b[1].t-a[1].t).map(([k,t])=>[CL.tlabel(t,EN)+' · '+t.c,()=>go(k)]),[I.other,()=>go(null)]])}
@@ -350,7 +382,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
     const nc=notesCard();if(prof&&nc){prof.insertAdjacentHTML('afterend',nc);document.querySelectorAll('#app .cl-note .cl-read').forEach(b=>b.onclick=()=>{const i=+b.closest('.cl-note').dataset.i,N=CL.get('g7-notes',[]);if(N[i])N[i].read=true;CL.set('g7-notes',N);b.closest('.cl-note').remove()})}}
   function decorateReport(){const pg=document.querySelector('#app .page');if(!pg||pg.querySelector('.cl-rep'))return;const h1=pg.querySelector('h1');if(!h1)return;
     const st=CL.student();h1.insertAdjacentHTML('afterend',`<section class="pnl cl-rep"><h2>${T.classPanel}${st?` · ${CL.h(CL.full(st))} (${CL.h(st.c)})`:''}</h2><p class="hint">${T.classHint}</p>
-      <div class="cl-tlist">${teachersHtml(true)}</div><p class="hint cl-last">${CL.h(lastLine())}</p>
+      <p class="hint cl-cls2">${classesLine()}</p><div class="cl-tlist">${teachersHtml(true)}</div><p class="hint cl-last">${CL.h(lastLine())}</p>
       <div class="row"><button class="btn gold cl-rs" type="button">${T.send}</button><button class="btn cl-rp" type="button">${T.parent}</button><button class="btn cl-re" type="button">✎ ${T.edit} · ${T.pEdit}</button></div></section>`);
     const wireRm=()=>pg.querySelectorAll('.cl-trm').forEach(b=>b.onclick=()=>{const TT=CL.get('g7-teachers',{});delete TT[b.dataset.k];CL.set('g7-teachers',TT);pg.querySelector('.cl-tlist').innerHTML=teachersHtml(true);wireRm()});wireRm();
     pg.querySelector('.cl-rs').onclick=()=>sendTeacher();pg.querySelector('.cl-rp').onclick=sendParent;pg.querySelector('.cl-re').onclick=()=>askName(true)}
