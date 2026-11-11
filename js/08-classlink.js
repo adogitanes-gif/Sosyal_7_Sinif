@@ -294,6 +294,15 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
       CL.set('g7-classes-bye',B);rebuildTeachers();hub()};
     hub();if(sk===cur)dlg(`<h2 style="margin-top:0">${Cx.byeT(x.c)}</h2><p>${Cx.byeMsg}</p>`,[[T.read,go]]);
     else dlg(`<p>${Cx.byeFor(CL.cap(sk.split('|')[1]||sk))}</p>`,[[T.read,go]])}
+  /* permanent join report: one line per class this student joined; prominent until a report to that class's coordinator
+     (or an older id of the same coordinator) has been prepared after joining */
+  const J=EN?{btn:c=>`Tell my class teacher I joined · ${c}`,done:(c,d)=>`Join report prepared · ${c} · ${d}`,again:'Send again',none:'No class yet: ask your teacher for the class link.'}
+    :{btn:c=>`Katıldığımı bildir · ${c}`,done:(c,d)=>`Katılım bildirimi hazırlandı · ${c} · ${d}`,again:'Tekrar gönder',none:'Sınıfın yok: öğretmeninden sınıf bağlantısını iste.'};
+  function joinLines(){const st=CL.student();if(!st)return '';const m=CLS(),ids=Object.keys(m);if(!ids.length)return `<p class="hint cl-join">🏫 ${J.none}</p>`;
+    const L=CL.get('g7-lastsent',{})[CL.key(st)]||{};
+    return ids.map(cid=>{const x=m[cid],e=[x.co.tid,...(x.co.alias||[])].map(t=>L[t]).filter(Boolean).sort((a,b)=>b.t-a.t)[0];
+      return e&&e.t>=(x.joined||0)?`<p class="hint cl-join">✓ ${CL.h(J.done(x.c,CL.date(e.t)))} · <button class="cl-edit cl-jr" data-t="${CL.h(x.co.tid)}" type="button">${J.again}</button></p>`
+        :`<p class="cl-join"><button class="btn gold sm cl-jb" data-t="${CL.h(x.co.tid)}" type="button">📤 ${CL.h(J.btn(x.c))}</button></p>`}).join('')}
   function classesLine(){const L=Object.values(CLS()).map(x=>CL.h(x.c)+(x.ds?' – '+CL.h(x.ds):'')+(x.moving?` (${Cx.moving})`:''));return L.length?`🏫 ${Cx.myClasses}: ${L.join(' · ')}`:''}
   function seatAsk(ex,o,apply){const M=s=>{const r={};s.forEach(x=>r[x[0]]=x[2]);return r},A=M(ex.seats),B=M(o.seats),ch=[...new Set([...Object.keys(A),...Object.keys(B)])].filter(g=>A[g]!==B[g]);
     if(!ch.length&&ex.co.n===o.co.n){apply();return}
@@ -365,7 +374,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
     if(hasVc)lines.push(V.added);
     lines.push('',EN?'Teacher panel link:':'Öğretmen paneli bağlantısı:',CL.PANEL+'#r='+code);
     const onSend=()=>{if(hasVc)CL.set('g7-vcok',null);const L=CL.get('g7-lastsent',{}),k=CL.key(st);L[k]=L[k]||{};L[k][tid||'other']={t:Date.now(),n:tc?tc.n:V.other};CL.set('g7-lastsent',L);
-      document.querySelectorAll('.cl-last').forEach(e=>e.textContent=lastLine())};
+      document.querySelectorAll('.cl-last').forEach(e=>e.textContent=lastLine());if(document.querySelector('#app .cl-joinbox'))try{decorateHome()}catch(e){}};
     CL.share({en:EN,title:tc?`${T.sendT} · ${tc.n}`:T.sendT,intro:T.sendIntro,text:lines.join('\n'),subject:`${EN?'Report':'Rapor'} – ${CL.full(st)} (${st.c})`,rows:9,
       phones:tc&&tc.ph?[[tc.n,tc.ph]]:[],email:tc?tc.em:'',onSend})}
   function sendParent(){const st=CL.student();if(!st){askName(true);return}const pc=CL.parent(),ph=CL.phones(pc,EN),to=[...ph.map(p=>p[0]+' '+p[1]),pc.email].filter(Boolean).join(' · ');
@@ -374,7 +383,8 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
   /* ---- home screen: the student's name, the send button, teacher notes ---- */
   function decorateHome(){const st=CL.student(),nm=document.querySelector('#app .profile .nm');if(!nm)return;
     if(st){nm.innerHTML=`${CL.h(CL.full(st))} <small class="cl-cls">${CL.h(st.c)}</small> <button class="cl-edit" type="button" title="${T.edit}" aria-label="${T.edit}">✎</button>`;nm.querySelector('.cl-edit').onclick=()=>askName(true)}
-    document.querySelectorAll('#app .profile .cl-tch').forEach(x=>x.remove());const th=teachersHtml(false);if(th)nm.insertAdjacentHTML('afterend',th);
+    document.querySelectorAll('#app .profile .cl-tch,#app .profile .cl-joinbox').forEach(x=>x.remove());const th=teachersHtml(false);if(th)nm.insertAdjacentHTML('afterend',th);
+    if(st){(nm.parentElement.querySelector('.cl-tch')||nm).insertAdjacentHTML('afterend',`<div class="cl-joinbox">${joinLines()}</div>`);document.querySelectorAll('#app .cl-joinbox [data-t]').forEach(b=>b.onclick=()=>sendTeacher(b.dataset.t,true))}
     const pb=document.querySelector('#app .profile .pbtns');if(pb&&!pb.querySelector('.cl-send')){const b=document.createElement('button');b.className='btn cl-send';b.type='button';b.textContent=T.send;b.onclick=()=>sendTeacher();pb.insertBefore(b,pb.children[2]||null)}
     const prof=document.querySelector('#app .profile');document.querySelectorAll('#app .cl-note,#app .cl-odev').forEach(x=>x.remove());
     const oc=odevCard();if(prof&&oc){prof.insertAdjacentHTML('afterend',oc);document.querySelectorAll('#app .cl-odev .cl-osend').forEach(b=>b.onclick=()=>sendTeacher(b.dataset.t||undefined))}
@@ -397,7 +407,7 @@ if(typeof window!=='undefined'&&window.G7_GAME&&typeof LESSONS!=='undefined'){(f
     .cl-box{font-size:1.25em;line-height:1}.cl-items li.cl-done .cl-box{color:var(--green,#3ddc97)}.cl-it{flex:1;min-width:0}
     .cl-pill{display:inline-block;border-radius:999px;padding:1px 9px;font-weight:700;font-size:.85rem;border:1.5px solid var(--line)}
     .cl-pill.g{color:var(--green,#3ddc97);border-color:currentColor}.cl-pill.y{color:var(--gold);border-color:currentColor}.cl-pill.r{color:var(--red,#ff5a6e);border-color:currentColor}
-    .cl-tch{font-size:.85rem;color:var(--ink-soft);margin:2px 0 4px}.cl-rep .cl-tch{margin:6px 0 10px;line-height:1.8}.cl-warn{color:var(--gold)!important}
+    .cl-joinbox{margin:2px 0 6px}.cl-join{margin:2px 0}.cl-tch{font-size:.85rem;color:var(--ink-soft);margin:2px 0 4px}.cl-rep .cl-tch{margin:6px 0 10px;line-height:1.8}.cl-warn{color:var(--gold)!important}
     .cl-inv{background:color-mix(in srgb,var(--gold) 16%,transparent);border:1.5px solid var(--gold);border-radius:10px;padding:8px 10px;margin:6px 0}
     .cl-flash{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--gold);color:#1d1400;padding:10px 18px;border-radius:12px;font-weight:700;z-index:999;box-shadow:0 6px 20px rgba(0,0,0,.35)}`;document.head.appendChild(css);
 
